@@ -1,11 +1,11 @@
 node_name,node_color,strength,clustering_coefficient,eigenvector_centrality,x,y,English_Names
 Node_1,Red,4.25,0.79,0.72,0.2,0.4,Jessica
-Node_2,Red,1.43,0.54,0.23,0.26,-0.7,Sarah
+Node_2,Red,1.43,0.54,0.23,0.7,0.5,Sarah
 Node_3,Orange,9.31,0.93,0.62,.52,0.76,Casey
 Node_4,Red,6.78,0.61,0.92,.24,0.58,Peter
-Node_5,Blue,2.79,0.92,0.93,0.98,-0.83,Blake
-Node_6,Yellow,7.54,0.17,0.5,0.28,-0.94,Robert
+Node_5,Blue,2.79,0.92,0.93,0.98,0.83,Blake
+Node_6,Yellow,7.54,0.17,0.5,0.28,-0,Robert
 Node_7,Yellow,3.33,0.35,0.94,0.16,0.32,Sarah
 Node_8,Red,6.21,0.6,0.97,-0.16,0.44,John
-Node_9,Orange,4.99,0.7,0.98,-0.39,-0.61,Michael
+Node_9,Orange,4.99,0.7,0.98,0.39,0.61,Michael
 Node_10,Orange,1.86,0.99,0.2,0.71,0.91,Rachel
