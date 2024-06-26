@@ -52,7 +52,6 @@
         }
         .edge {
             stroke: #ccc;
-            stroke-width: 1.5px;
         }
         .tooltip {
             position: absolute;
@@ -94,14 +93,6 @@
     <br><b>Node Size:</b> Choose the node size based on different centrality metrics (NB: this is for the all subject sizes).
 </div>
 
-<div class="explanation">
-    <h5>Known Issues</h5><ul>
-        <li>When updating "scale edge size", "edge threshold" gets reset</li>
-        <li>Scale edge size scales opacity not width</li>
-    </ul> 
-</div>
-
-
 <script>
     let links, nodes, edges, networkDataDown, scalerSlider, thresholdSlider, thresholdValueText;
 
@@ -128,8 +119,8 @@
     }
 
     function createNetwork() {
-        d3.csv('data/nodes.csv').then(nodesData => {
-            d3.csv('data/edges.csv').then(edgesData => {
+        d3.csv('all/nodes.csv').then(nodesData => {
+            d3.csv('all/edges.csv').then(edgesData => {
                 nodes = nodesData;
                 edges = edgesData;
 
@@ -157,7 +148,7 @@
                     .enter().append('line')
                     .attr('class', 'edge')
                     .style('stroke', d => `rgba(0, 0, 0, ${Math.abs(d.weight)})`)
-                    .style('stroke-width', d => +Math.abs(d.weight) * 5)
+                    .attr('stroke-width', d => +Math.abs(d.weight) * 5)
                     .style('opacity', 1)
                     .attr('x1', d => {
                         const sourceNode = nodes.find(node => node.node_name === d.i);
@@ -281,7 +272,7 @@
                     .style('margin-top', '5px')
                     .on('input', function () {
                         scalerValueText.text(this.value);
-                        updateEdgeWeights();
+                        updateEdgeWeights(false);
                     });
 
                 thresholdValueText.text(thresholdSlider.node().value);
@@ -390,23 +381,29 @@
                         return 'mgm_weight';
                     }
                 }
-
-                function updateEdgeWeights() {
+                
+                function updateEdgeWeights(shouldUpdateThreshold = true) {
                     const selectedNetworkData = d3.select(networkDataDown.node()).property('value');
                     let weightMultiplier = scalerSlider.node().value;
-                    let weightType;
-                    weightType = getWeightType();
+                    let weightType = getWeightType();
+                    
                     if (selectedNetworkData === 'Pain - No Pain') {
                         weightMultiplier = weightMultiplier * 10;
                     }
-                    console.log(5 * weightMultiplier)
+                    
+                    console.log(5 * weightMultiplier);
+                    
                     links.transition().duration(100)
                         .style('stroke', d => `rgba(0, 0, 0, ${Math.abs(d[weightType]) * weightMultiplier})`)
-                        .style('stroke-width', d => (Math.abs(d[weightType]) * 5 * weightMultiplier));
-                    thresholdSlider.node().value = 0;
-                    thresholdValueText.text(0);
-                    updateThreshold();
+                        .attr('stroke-width', d => (Math.abs(d[weightType]) * 5 * weightMultiplier));
+                    
+                    if (shouldUpdateThreshold) {
+                        thresholdSlider.node().value = 0;
+                        thresholdValueText.text(0);
+                        updateThreshold();
+                    }
                 }
+
 
                 let selectedButton = 'strengthRadioButton';
 
