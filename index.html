@@ -1,93 +1,498 @@
 <!DOCTYPE html>
-<meta charset="utf-8">
-<style>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Värnplikt D3 Network Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400&display=swap">
+    <style>
+        .selected-button {
+            background-color: #007bff;
+            color: white;
+        }
+        body {
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .explanation {
+            margin-top: 20px;
+            text-align: left;
+            width: 60%;
+        }
+        .controls-container {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 300px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            padding: 10px;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .controls-container > * {
+            margin-bottom: 10px;
+            border-right: 1px solid #ccc;
+            padding-right: 10px;
+        }
+        .controls-container > :last-child {
+            border-right: none;
+        }
+        .edge {
+            stroke: #ccc;
+            stroke-width: 1.5px;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #000;
+            display: none;
+            font-family: 'Roboto', sans-serif;
+        }
+        #downloadLink {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            background-color: #ffffff;
+            padding: 10px 20px;
+            border: 1px solid #cccccc;
+            border-radius: 5px;
+            text-decoration: none;
+            color: #333333;
+        }
+    </style>
+</head>
+<body>
 
-.links line {
-  stroke: #999;
-  stroke-opacity: 0.6;
-}
+<div class="controls-container"></div>
+<div class="tooltip" id="tooltip"></div>
+<a href="#" id="downloadLink">Download Image</a>
 
-.nodes circle {
-  stroke: #fff;
-  stroke-width: 1.5px;
-}
+<div><svg id="networkSvg"></svg></div>
 
-</style>
-<svg width="960" height="600"></svg>
-<script src="https://d3js.org/d3.v4.min.js"></script>
+<div class="explanation">
+    <h1>Swedish National Conscription Network</h1>
+    <b>Explanation:</b> Interactive figure to compliment the paper. This figure shows the network of the Swedish National Conscription data. The nodes represent different data collected (such as psychological tests) and the edges represent the correlation between the tests. The edge weights are the correlation coefficients. The node size is based on different centrality metrics. The network is colored based on the different categories of the tests.
+    <br><b>Network:</b>Choose the different type of network to visualize. "All subjects" is the non-regularized non-parametric network. MGM uses mixed graphical models which includes reguarlization of edges (but has other potential issues and more assumptions). And "Pain - No Pain" is the difference between Pain and No Pain cohorts for the non-regularized non-parametric method. 
+    <br><b>Threshold edges above:</b> Set the threshold for the edge weights.
+    <br><b>Scale edge size:</b> Scale the edge size/intensity.
+    <br><b>Scale node size:</b> Scale the node size.
+    <br><b>Node Size:</b> Choose the node size based on different centrality metrics (NB: this is for the all subject sizes).
+</div>
+
+<div class="explanation">
+    <h5>Known Issues</h5><ul>
+        <li>When updating "scale edge size", "edge threshold" gets reset</li>
+        <li>Scale edge size scales opacity not width</li>
+    </ul> 
+</div>
+
+
 <script>
+    let links, nodes, edges, networkDataDown, scalerSlider, thresholdSlider, thresholdValueText;
 
-var svg = d3.select("svg"),
-    width = +svg.attr("width"),
-    height = +svg.attr("height");
+    function showNodeTooltip(event, d) {
+        const tooltip = d3.select('#tooltip');
+        tooltip.html(`${d.English_Names}<br>Strength: ${d3.format('.3f')(d.strength)}
+                    <br>Clustering Coefficient: ${d3.format('.3f')(d.clustering_coefficient)}
+                    <br>Eigenvector Centrality: ${d3.format('.3f')(d.eigenvector_centrality)}`)
+            .style('left', (event.pageX + 5) + 'px')
+            .style('top', (event.pageY - 10) + 'px')
+            .style('display', 'block');
+    }
 
-var color = d3.scaleOrdinal(d3.schemeCategory20);
+    function showEdgeTooltip(event, d) {
+        const tooltip = d3.select('#tooltip');
+        tooltip.html(`${d.i_english} - ${d.j_english}<br>Weight: ${d3.format('.3f')(Math.abs(d.weight))}<br>Difference (Pain - No Pain): ${d3.format('.3f')(Math.abs(d.diff_weight))}<br>Weight (MGM): ${d3.format('.3f')(Math.abs(d.mgm_weight))}`)
+            .style('left', (event.pageX + 5) + 'px')
+            .style('top', (event.pageY - 10) + 'px')
+            .style('display', 'block');
+    }
 
-var simulation = d3.forceSimulation()
-    .force("link", d3.forceLink().id(function(d) { return d.id; }))
-    .force("charge", d3.forceManyBody())
-    .force("center", d3.forceCenter(width / 2, height / 2));
+    function hideTooltip() {
+        d3.select('#tooltip').style('display', 'none');
+    }
 
-d3.json("miserables.json", function(error, graph) {
-  if (error) throw error;
+    function createNetwork() {
+        d3.csv('data/nodes.csv').then(nodesData => {
+            d3.csv('data/edges.csv').then(edgesData => {
+                nodes = nodesData;
+                edges = edgesData;
 
-  var link = svg.append("g")
-      .attr("class", "links")
-    .selectAll("line")
-    .data(graph.links)
-    .enter().append("line")
-      .attr("stroke-width", function(d) { return Math.sqrt(d.value); });
+                const margin = { top: 5, right: 5, bottom: 5, left: 5 };
+                const width = 900 + margin.left + margin.right;
+                const height = 600 + margin.top + margin.bottom;
 
-  var node = svg.append("g")
-      .attr("class", "nodes")
-    .selectAll("circle")
-    .data(graph.nodes)
-    .enter().append("circle")
-      .attr("r", 5)
-      .attr("fill", function(d) { return color(d.group); })
-      .call(d3.drag()
-          .on("start", dragstarted)
-          .on("drag", dragged)
-          .on("end", dragended));
+                const xScale = d3.scaleLinear()
+                    .domain(d3.extent(nodes, d => +d.x))
+                    .range([margin.left, width - margin.right]);
 
-  node.append("title")
-      .text(function(d) { return d.id; });
+                const yScale = d3.scaleLinear()
+                    .domain(d3.extent(nodes, d => +d.y))
+                    .range([margin.top, height - margin.bottom]);
 
-  simulation
-      .nodes(graph.nodes)
-      .on("tick", ticked);
+                const svg = d3.select('#networkSvg')
+                    .attr('width', width)
+                    .attr('height', height);
 
-  simulation.force("link")
-      .links(graph.links);
+                const maxWeight = d3.max(edges, d => +Math.abs(d.weight));
 
-  function ticked() {
-    link
-        .attr("x1", function(d) { return d.source.x; })
-        .attr("y1", function(d) { return d.source.y; })
-        .attr("x2", function(d) { return d.target.x; })
-        .attr("y2", function(d) { return d.target.y; });
+                links = svg.append('g')
+                    .selectAll('line')
+                    .data(edges)
+                    .enter().append('line')
+                    .attr('class', 'edge')
+                    .style('stroke', d => `rgba(0, 0, 0, ${Math.abs(d.weight)})`)
+                    .style('stroke-width', d => +Math.abs(d.weight) * 5)
+                    .style('opacity', 1)
+                    .attr('x1', d => {
+                        const sourceNode = nodes.find(node => node.node_name === d.i);
+                        return sourceNode ? xScale(+sourceNode.x) : 0;
+                    })
+                    .attr('y1', d => {
+                        const sourceNode = nodes.find(node => node.node_name === d.i);
+                        return sourceNode ? yScale(+sourceNode.y) : 0;
+                    })
+                    .attr('x2', d => {
+                        const targetNode = nodes.find(node => node.node_name === d.j);
+                        return targetNode ? xScale(+targetNode.x) : 0;
+                    })
+                    .attr('y2', d => {
+                        const targetNode = nodes.find(node => node.node_name === d.j);
+                        return targetNode ? yScale(+targetNode.y) : 0;
+                    })
+                    .on('mouseover', showEdgeTooltip)
+                    .on('mouseout', hideTooltip);
 
-    node
-        .attr("cx", function(d) { return d.x; })
-        .attr("cy", function(d) { return d.y; });
-  }
-});
+                const node = svg.append('g')
+                    .selectAll('circle')
+                    .data(nodes)
+                    .enter().append('circle')
+                    .attr('r', d => +Math.abs(d.strength))
+                    .attr('fill', d => d.node_color)
+                    .attr('stroke', 'black')
+                    .attr('stroke-width', 1)
+                    .attr('cx', d => xScale(+d.x))
+                    .attr('cy', d => yScale(+d.y))
+                    .on('mouseover', showNodeTooltip)
+                    .on('mouseout', hideTooltip);
 
-function dragstarted(d) {
-  if (!d3.event.active) simulation.alphaTarget(0.3).restart();
-  d.fx = d.x;
-  d.fy = d.y;
-}
+                const legendContainer = svg.append('g')
+                    .attr('transform', `translate(${30},400)`);
 
-function dragged(d) {
-  d.fx = d3.event.x;
-  d.fy = d3.event.y;
-}
+                const legendData = [
+                    { label: 'Psychology & Emotion', color: 'blue' },
+                    { label: 'Health', color: 'yellow' },
+                    { label: 'Social & Anti-social', color: 'orange' },
+                    { label: 'Home, School & Worklife', color: 'purple' },
+                    { label: 'Physical tests', color: 'green' },
+                    { label: 'Other', color: 'red' }
+                ];
 
-function dragended(d) {
-  if (!d3.event.active) simulation.alphaTarget(0);
-  d.fx = null;
-  d.fy = null;
-}
+                const legend = legendContainer.selectAll('.legend')
+                    .data(legendData)
+                    .enter().append('g')
+                    .attr('class', 'legend')
+                    .attr('transform', (d, i) => `translate(0,${i * 25})`);
 
+                legend.append('circle')
+                    .attr('cx', 9)
+                    .attr('cy', 9)
+                    .attr('r', 9)
+                    .style('fill', d => d.color);
+
+                legend.append('text')
+                    .attr('x', 25)
+                    .attr('y', 9)
+                    .attr('dy', '0.4em')
+                    .style('text-anchor', 'start')
+                    .text(d => d.label);
+
+                const networkDataContainer = d3.select('.controls-container').append('div')
+                    .style('text-align', 'center')
+                    .append('p').text('Network    ');
+
+                const networkDataAlt = ['All subjects', 'Pain - No Pain', 'MGM'];
+
+                networkDataDown = networkDataContainer.append('select')
+                    .on('change', updateEdgeWeights);
+
+                networkDataDown.selectAll('option')
+                    .data(networkDataAlt)
+                    .enter().append('option')
+                    .attr('value', d => d)
+                    .text(d => d);
+
+                const sliderContainer = d3.select('.controls-container').append('div')
+                    .style('text-align', 'center');
+
+                sliderContainer.append('p').text('Threshold edges above');
+
+                const thresholdValueContainer = sliderContainer.append('div')
+                    .style('margin-bottom', '5px');
+
+                thresholdValueText = thresholdValueContainer.append('span')
+                    .style('font-size', '10px')
+                    .style('margin-right', '5px');
+
+                thresholdSlider = sliderContainer.append('input')
+                    .attr('type', 'range')
+                    .attr('min', 0)
+                    .attr('max', 0.5)
+                    .attr('step', 0.001)
+                    .attr('value', 0)
+                    .style('width', '100%')
+                    .style('margin-top', '5px')
+                    .on('input', function () {
+                        thresholdValueText.text(this.value);
+                        updateThreshold();
+                    });
+
+                sliderContainer.append('p').text('Scale edge size');
+
+                const scalerValueContainer = sliderContainer.append('div')
+                    .style('margin-bottom', '5px');
+
+                const scalerValueText = scalerValueContainer.append('span')
+                    .style('font-size', '10px')
+                    .style('margin-right', '5px');
+
+                scalerSlider = sliderContainer.append('input')
+                    .attr('type', 'range')
+                    .attr('min', 0.5)
+                    .attr('max', 5)
+                    .attr('step', 0.1)
+                    .attr('value', 1)
+                    .style('width', '100%')
+                    .style('margin-top', '5px')
+                    .on('input', function () {
+                        scalerValueText.text(this.value);
+                        updateEdgeWeights();
+                    });
+
+                thresholdValueText.text(thresholdSlider.node().value);
+                scalerValueText.text(scalerSlider.node().value);
+
+                sliderContainer.append('p').text('Scale node size');
+
+                const nodeSizeScalerValueContainer = sliderContainer.append('div')
+                    .style('margin-bottom', '5px');
+
+                const nodeSizeScalerValueText = nodeSizeScalerValueContainer.append('span')
+                    .style('font-size', '10px')
+                    .style('margin-right', '5px');
+
+                const nodeSizeScalerSlider = sliderContainer.append('input')
+                    .attr('type', 'range')
+                    .attr('min', 0.1)
+                    .attr('max', 2)
+                    .attr('step', 0.1)
+                    .attr('value', 1)
+                    .style('width', '100%')
+                    .style('margin-top', '5px')
+                    .on('input', function () {
+                        nodeSizeScalerValueText.text(this.value);
+                        updateNodeSize();
+                    });
+
+                nodeSizeScalerValueText.text(nodeSizeScalerSlider.node().value);
+
+                const radioContainer = d3.select('.controls-container').append('div')
+                    .style('text-align', 'left')
+                    .style('margin-top', '10px');
+
+                radioContainer.append('p').text('Node Size (all subjects)');
+
+                const radioButtonsContainer = radioContainer.append('div');
+
+                radioButtonsContainer.append('button')
+                    .attr('id', 'strengthRadioButton')
+                    .text('Strength')
+                    .on('click', function () {
+                        updateNodeSizeByButton('strengthRadioButton');
+                    });
+
+                radioButtonsContainer.append('br');
+                radioButtonsContainer.append('button')
+                    .attr('id', 'clusteringCoefficientRadioButton')
+                    .text('Clustering Coefficient')
+                    .on('click', function () {
+                        updateNodeSizeByButton('clusteringCoefficientRadioButton');
+                    });
+
+                radioButtonsContainer.append('br');
+                radioButtonsContainer.append('button')
+                    .attr('id', 'eigenvectorCentralityRadioButton')
+                    .text('Eigenvector Centrality')
+                    .on('click', function () {
+                        updateNodeSizeByButton('eigenvectorCentralityRadioButton');
+                    });
+
+                const uniqueEdgeTypes = ['All Edges', ...new Set(edges.filter(d => d.type !== 'self').map(d => d.type))];
+                const dropdownContainer = d3.select('.controls-container').append('div')
+                    .style('text-align', 'center')
+                    .style('margin-top', '10px');
+
+                dropdownContainer.append('p').text('Filter edges by type:');
+
+                const edgeTypeDropdown = dropdownContainer.append('select')
+                    .on('change', updateEdgeTypeFilter);
+
+                edgeTypeDropdown.selectAll('option')
+                    .data(uniqueEdgeTypes)
+                    .enter().append('option')
+                    .attr('value', d => d)
+                    .text(d => d);
+
+                function updateThreshold() {
+                    const selectedType = edgeTypeDropdown.node().value;
+                    weightType = getWeightType();
+                    const threshold = +thresholdSlider.node().value;
+                    links.style('display', d => {
+                        return Math.abs(d[weightType]) >= threshold ? 'initial' : 'none';
+                    });
+                }
+
+                function updateEdgeTypeFilter() {
+                    const selectedType = edgeTypeDropdown.node().value;
+
+                    // Update the visibility of the links based on the selected type
+                    links.style('display', d => {
+                        if (selectedType === 'All Edges') {
+                            return 'initial'; // Show all edges
+                        } else {
+                            return d.type === selectedType ? 'initial' : 'none'; // Show only selected type
+                        }
+                    });
+                }
+
+                function getWeightType() {
+                    const selectedNetworkData = networkDataDown.node().value;
+                    if (selectedNetworkData === 'All subjects') {
+                        return 'weight';
+                    } else if (selectedNetworkData === 'Pain - No Pain') {
+                        return 'diff_weight';
+                    } else if (selectedNetworkData === 'MGM') {
+                        return 'mgm_weight';
+                    }
+                }
+
+                function updateEdgeWeights() {
+                    const selectedNetworkData = d3.select(networkDataDown.node()).property('value');
+                    let weightMultiplier = scalerSlider.node().value;
+                    let weightType;
+                    weightType = getWeightType();
+                    if (selectedNetworkData === 'Pain - No Pain') {
+                        weightMultiplier = weightMultiplier * 10;
+                    }
+                    console.log(5 * weightMultiplier)
+                    links.transition().duration(100)
+                        .style('stroke', d => `rgba(0, 0, 0, ${Math.abs(d[weightType]) * weightMultiplier})`)
+                        .style('stroke-width', d => (Math.abs(d[weightType]) * 5 * weightMultiplier));
+                    thresholdSlider.node().value = 0;
+                    thresholdValueText.text(0);
+                    updateThreshold();
+                }
+
+                let selectedButton = 'strengthRadioButton';
+
+                function updateNodeSize() {
+                    const nodeSizeScalar = +nodeSizeScalerSlider.node().value;
+
+                    node.transition().duration(500)
+                        .attr('r', d => {
+                            if (selectedButton === 'strengthRadioButton') {
+                                return Math.abs(d.strength * nodeSizeScalar);
+                            } else if (selectedButton === 'clusteringCoefficientRadioButton') {
+                                return d.clustering_coefficient * nodeSizeScalar * 100;
+                            } else if (selectedButton === 'eigenvectorCentralityRadioButton') {
+                                return d.eigenvector_centrality * nodeSizeScalar * 100;
+                            }
+                        });
+                }
+
+                function updateNodeSizeByButton(buttonId) {
+                    selectedButton = buttonId;
+                    d3.selectAll('button').classed('selected-button', false);
+                    d3.select(`#${buttonId}`).classed('selected-button', true);
+                    updateNodeSize();
+                }
+
+                nodeSizeScalerSlider.on('input', function () {
+                    nodeSizeScalerValueText.text(this.value);
+                    updateNodeSize();
+                });
+
+                d3.select('#strengthRadioButton').on('click', function () {
+                    updateNodeSizeByButton('strengthRadioButton');
+                });
+                d3.select('#clusteringCoefficientRadioButton').on('click', function () {
+                    updateNodeSizeByButton('clusteringCoefficientRadioButton');
+                });
+                d3.select('#eigenvectorCentralityRadioButton').on('click', function () {
+                    updateNodeSizeByButton('eigenvectorCentralityRadioButton');
+                });
+
+                networkDataDown.on('change', updateEdgeWeights);
+            });
+        });
+    }
+
+    document.getElementById('downloadLink').addEventListener('click', function (event) {
+        event.preventDefault();
+        const svgElement = document.querySelector('svg');
+        saveSvgAsPng(svgElement, 'network_figure.png', 600);
+    });
+
+    function saveSvgAsPng(svgElement, filename, dpi) {
+        const svgString = new XMLSerializer().serializeToString(svgElement);
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        const image = new Image();
+
+        const dpiScale = dpi / 96;
+        const width = svgElement.width.baseVal.value * dpiScale;
+        const height = svgElement.height.baseVal.value * dpiScale;
+
+        canvas.width = width;
+        canvas.height = height;
+        context.setTransform(dpiScale, 0, 0, dpiScale, 0, 0);
+
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, width, height);
+
+        image.onload = function () {
+            context.drawImage(image, 0, 0);
+
+            const imageDataUrl = canvas.toDataURL('image/png');
+
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = imageDataUrl;
+
+            link.click();
+        };
+        image.src = 'data:image/svg+xml;base64,' + btoa(svgString);
+    }
+
+    createNetwork();
 </script>
+</body>
+</html>
+
+
+
