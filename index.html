@@ -119,8 +119,8 @@
     }
 
     function createNetwork() {
-        d3.csv('all/nodes.csv').then(nodesData => {
-            d3.csv('all/edges.csv').then(edgesData => {
+        d3.csv('data/nodes.csv').then(nodesData => {
+            d3.csv('data/edges.csv').then(edgesData => {
                 nodes = nodesData;
                 edges = edgesData;
 
